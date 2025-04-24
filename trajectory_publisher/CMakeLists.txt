@@ -35,6 +35,11 @@ add_executable(trajectory_publisher
         src/polynomialtrajectory.cpp
         src/shapetrajectory.cpp
 )
+
+add_executable(my_trajectory src/my_trajectory.cpp)
+add_dependencies(my_trajectory ${catkin_EXPORTED_TARGETS})
+target_link_libraries(my_trajectory ${catkin_LIBRARIES})
+
 add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
 ##########
