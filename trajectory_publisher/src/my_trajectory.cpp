@@ -144,7 +144,7 @@ void TrajectoryPub::timer_cb()
         Eigen::Vector3d x0;
         x0 << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
         Eigen::Vector3d xf;
-        xf << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
+        xf << odom.pose.pose.position.x + 5.0, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
         double y_peak = odom.pose.pose.position.y + 1.5;
 
         std::cout << "Starting position: " << x0.transpose() << std::endl;
@@ -164,7 +164,7 @@ void TrajectoryPub::timer_cb()
         // get coefficients
         a_x << x0(0), (xf(0) - x0(0)) / exec_time, 0.0;
         a_y = A.colPivHouseholderQr().solve(b);
-        a_z << z0, 0.0, 0.0;
+        a_z << odom.pose.pose.position.z + z0, 0.0, 0.0;
 	std::cout << "ax: " << a_x.transpose() << std::endl;
 	just_started = false;
 	t_start_ = ros::Time::now().toSec();
@@ -179,9 +179,9 @@ void TrajectoryPub::timer_cb()
 	    std::cout << "waiting... t: " << t_now << std::endl;
         target_msg.type_mask = 4;
         target_msg.position.z = z0;
-        flatreferencePub_.publish(target_msg);
+        // flatreferencePub_.publish(target_msg);
     } else if (t_now > wait_time && t_now - wait_time < exec_time) {
-	    std::cout << "t : " << t_now << std::endl;
+	    // std::cout << "t : " << t_now << std::endl;
         Eigen::Vector3d refpos = getPosition(t_now-wait_time);
         Eigen::Vector3d refvel = getVelocity(t_now-wait_time);
         Eigen::Vector3d refacc = getAcceleration(t_now-wait_time);
@@ -189,6 +189,7 @@ void TrajectoryPub::timer_cb()
         target_msg.position.x = refpos(0);
         target_msg.position.y = refpos(1);
         target_msg.position.z = refpos(2);
+	std::cout << "Reference pos: " << refpos.transpose() << std::endl;
         target_msg.velocity.x = refvel(0);
         target_msg.velocity.y = refvel(1);
         target_msg.velocity.z = refvel(2);
