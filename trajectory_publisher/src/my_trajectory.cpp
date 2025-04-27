@@ -29,37 +29,10 @@ class TrajectoryPub
         timer_ = nh_.createTimer(ros::Duration(0.01), std::bind(&TrajectoryPub::timer_cb, this));
         trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), std::bind(&TrajectoryPub::publishTrajectory, this));
 
+	odom_sub = nh_.subscribe<nav_msgs::Odometry>("/mavros/local_position/odom", 1, std::bind(&TrajectoryPub::odom_cb, this, std::placeholders::_1));
         a_x.resize(3);
         a_y.resize(3);
         a_z.resize(3);
-
-        // trajectory params
-        Eigen::Vector3d x0;
-        x0 << 0.0, 0.0, z0;
-        Eigen::Vector3d xf;
-        xf << 5.0, 0.0, z0;
-        double y_peak = 1.5;
-
-        double t0 = 0.0;
-        double tm = exec_time / 2;
-        double tf = exec_time;
-
-        Eigen::Matrix3d A;
-        A << 1, t0, t0 * t0,
-            1, tm, tm * tm,
-            1, tf, tf * tf;
-        Eigen::Vector3d b;
-        b << x0(1), y_peak, xf(1);
-
-        // get coefficients
-        a_x << x0(0), (xf(0) - x0(0)) / exec_time, 0.0;
-        a_y = A.colPivHouseholderQr().solve(b);
-        a_z << z0, 0.0, 0.0;
-
-        t_start_ = ros::Time::now().toSec();
-        
-
-
     }
     ~TrajectoryPub() {
         ROS_INFO("TrajectoryPub Destructor called.");
@@ -68,6 +41,7 @@ class TrajectoryPub
     void stop();
     void timer_cb();
     void publishTrajectory();
+    void odom_cb(const nav_msgs::Odometry::ConstPtr& msg);
     Eigen::Vector3d getPosition(double t);
     Eigen::Vector3d getVelocity(double t);
     Eigen::Vector3d getAcceleration(double t);
@@ -82,6 +56,8 @@ private:
     ros::Publisher traj_pub_;
     ros::Publisher primitives_pub_;
     ros::Publisher flatreferencePub_;
+    ros::Subscriber odom_sub;
+    nav_msgs::Odometry odom;
 
     Eigen::VectorXd a_x;
     Eigen::VectorXd a_y;
@@ -90,6 +66,8 @@ private:
     double wait_time = 10.0;
     double z0 = 2.0;
     double t_start_;
+    bool odom_received = false;
+    bool just_started = true;
 };
 
 void TrajectoryPub::stop()
@@ -97,6 +75,13 @@ void TrajectoryPub::stop()
     ROS_INFO("Shutdown required. Closing trajectory publisher...");
     ros::Duration(0.1).sleep();
     ros::shutdown();
+}
+
+void TrajectoryPub::odom_cb(const nav_msgs::Odometry::ConstPtr& msg) {
+	odom = *msg;
+	if (odom.pose.pose.position.z != 0.0) {
+		odom_received = true;
+	}
 }
 
 Eigen::Vector3d TrajectoryPub::getPosition(double t)
@@ -149,15 +134,54 @@ void TrajectoryPub::publishTrajectory()
 
 void TrajectoryPub::timer_cb()
 {
+	if(!odom_received) {
+                ROS_INFO("Waiting 4 odom ...");
+        	return;
+	}
+
+	if(just_started) {
+        // trajectory params
+        Eigen::Vector3d x0;
+        x0 << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
+        Eigen::Vector3d xf;
+        xf << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
+        double y_peak = odom.pose.pose.position.y + 1.5;
+
+        std::cout << "Starting position: " << x0.transpose() << std::endl;
+        std::cout << "Final position: " << xf.transpose() << std::endl;
+
+        double t0 = 0.0;
+        double tm = exec_time / 2;
+        double tf = exec_time;
+
+        Eigen::Matrix3d A;
+        A << 1, t0, t0 * t0,
+            1, tm, tm * tm,
+            1, tf, tf * tf;
+        Eigen::Vector3d b;
+        b << x0(1), y_peak, xf(1);
+
+        // get coefficients
+        a_x << x0(0), (xf(0) - x0(0)) / exec_time, 0.0;
+        a_y = A.colPivHouseholderQr().solve(b);
+        a_z << z0, 0.0, 0.0;
+	std::cout << "ax: " << a_x.transpose() << std::endl;
+	just_started = false;
+	t_start_ = ros::Time::now().toSec();
+	}
+
+
     double t_now = ros::Time::now().toSec() - t_start_;
     controller_msgs::FlatTarget target_msg;
     target_msg.header.frame_id = "map";
     target_msg.header.stamp = ros::Time::now();
     if (t_now < wait_time) {
+	    std::cout << "waiting... t: " << t_now << std::endl;
         target_msg.type_mask = 4;
         target_msg.position.z = z0;
         flatreferencePub_.publish(target_msg);
     } else if (t_now > wait_time && t_now - wait_time < exec_time) {
+	    std::cout << "t : " << t_now << std::endl;
         Eigen::Vector3d refpos = getPosition(t_now-wait_time);
         Eigen::Vector3d refvel = getVelocity(t_now-wait_time);
         Eigen::Vector3d refacc = getAcceleration(t_now-wait_time);
@@ -172,6 +196,8 @@ void TrajectoryPub::timer_cb()
         target_msg.acceleration.y = refacc(1);
         target_msg.acceleration.z = refacc(2);
         flatreferencePub_.publish(target_msg);
+    } else {
+	std::cout << "too late: t = " << t_now << std::endl;
     }
 
     
