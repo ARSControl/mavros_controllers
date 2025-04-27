@@ -23,13 +23,15 @@ class TrajectoryPub
     public:
     TrajectoryPub(): nh_priv_("~")
     {
+        nh_priv_.getParam("altitude", z0);
+        std::cout << "Desired Altitude: " << z0 << std::endl;
         traj_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/trajectory", 10);
         flatreferencePub_ = nh_.advertise<controller_msgs::FlatTarget>("/reference/flatsetpoint", 10);
         primitives_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/primitiveset", 10);
         timer_ = nh_.createTimer(ros::Duration(0.01), std::bind(&TrajectoryPub::timer_cb, this));
         trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), std::bind(&TrajectoryPub::publishTrajectory, this));
 
-	odom_sub = nh_.subscribe<nav_msgs::Odometry>("/mavros/local_position/odom", 1, std::bind(&TrajectoryPub::odom_cb, this, std::placeholders::_1));
+	    odom_sub = nh_.subscribe<nav_msgs::Odometry>("/mavros/local_position/odom", 1, std::bind(&TrajectoryPub::odom_cb, this, std::placeholders::_1));
         a_x.resize(3);
         a_y.resize(3);
         a_z.resize(3);
