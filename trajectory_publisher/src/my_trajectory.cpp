@@ -23,8 +23,11 @@ class TrajectoryPub
     public:
     TrajectoryPub(): nh_priv_("~")
     {
-        nh_priv_.getParam("altitude", z0);
-        std::cout << "Desired Altitude: " << z0 << std::endl;
+        nh_priv_.getParam("altitude", takeoff_altitude);
+        nh_priv_.getParam("wait_time", wait_time);
+        nh_priv_.getParam("takeoff_time", takeoff_time);
+        nh_priv_.getParam("exec_time", exec_time);
+        std::cout << "Desired Altitude: " << takeoff_altitude << std::endl;
         traj_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/trajectory", 10);
         flatreferencePub_ = nh_.advertise<controller_msgs::FlatTarget>("/reference/flatsetpoint", 10);
         primitives_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/primitiveset", 10);
@@ -60,13 +63,15 @@ private:
     ros::Publisher flatreferencePub_;
     ros::Subscriber odom_sub;
     nav_msgs::Odometry odom;
+    geometry_msgs::PoseStamped takeoff_pose;
 
     Eigen::VectorXd a_x;
     Eigen::VectorXd a_y;
     Eigen::VectorXd a_z;
     double exec_time = 15.0;
-    double wait_time = 10.0;
-    double z0 = 2.0;
+    double wait_time = 15.0;
+    double takeoff_time = 5.0;
+    double takeoff_altitude = 2.0;
     double t_start_;
     bool odom_received = false;
     bool just_started = true;
@@ -137,17 +142,24 @@ void TrajectoryPub::publishTrajectory()
 void TrajectoryPub::timer_cb()
 {
 	if(!odom_received) {
-                ROS_INFO("Waiting 4 odom ...");
-        	return;
+            ROS_INFO("Waiting 4 odom ...");
+        return;
 	}
 
 	if(just_started) {
+        // save takeoff pose
+        takeoff_pose.header.frame_id = "map";
+        takeoff_pose.header.stamp = ros::Time::now();
+        takeoff_pose.pose.position.x = odom.pose.pose.position.x;
+        takeoff_pose.pose.position.y = odom.pose.pose.position.y;
+        takeoff_pose.pose.position.z = odom.pose.pose.position.z + takeoff_altitude;
+
         // trajectory params
         Eigen::Vector3d x0;
-        x0 << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
+        x0 << takeoff_pose.pose.position.x, takeoff_pose.pose.position.y, takeoff_pose.pose.position.z;
         Eigen::Vector3d xf;
-        xf << odom.pose.pose.position.x + 5.0, odom.pose.pose.position.y, odom.pose.pose.position.z + z0;
-        double y_peak = odom.pose.pose.position.y + 1.5;
+        xf << takeoff_pose.pose.position.x + 5.0, takeoff_pose.pose.position.y, takeoff_pose.pose.position.z;
+        double y_peak = takeoff_pose.pose.position.y + 1.5;
 
         std::cout << "Starting position: " << x0.transpose() << std::endl;
         std::cout << "Final position: " << xf.transpose() << std::endl;
@@ -166,10 +178,10 @@ void TrajectoryPub::timer_cb()
         // get coefficients
         a_x << x0(0), (xf(0) - x0(0)) / exec_time, 0.0;
         a_y = A.colPivHouseholderQr().solve(b);
-        a_z << odom.pose.pose.position.z + z0, 0.0, 0.0;
-	std::cout << "ax: " << a_x.transpose() << std::endl;
-	just_started = false;
-	t_start_ = ros::Time::now().toSec();
+        a_z << takeoff_pose.pose.position.z, 0.0, 0.0;        
+        std::cout << "ax: " << a_x.transpose() << std::endl;
+        just_started = false;
+        t_start_ = ros::Time::now().toSec();
 	}
 
 
@@ -177,12 +189,19 @@ void TrajectoryPub::timer_cb()
     controller_msgs::FlatTarget target_msg;
     target_msg.header.frame_id = "map";
     target_msg.header.stamp = ros::Time::now();
-    if (t_now < wait_time) {
+    if (t_now < wait_time - takeoff_time) {
 	    std::cout << "waiting... t: " << t_now << std::endl;
         target_msg.type_mask = 4;
-        target_msg.position.z = z0;
+        target_msg.position.z = takeoff_altitude;
         // flatreferencePub_.publish(target_msg);
-    } else if (t_now > wait_time && t_now - wait_time < exec_time) {
+    } else if ((t_now >= wait_time - takeoff_time) && (t_now < wait_time)) {
+        target_msg.type_mask = 4;           // pose only
+        target_msg.position.x = takeoff_pose.pose.position.x;
+        target_msg.position.y = takeoff_pose.pose.position.y;
+        target_msg.position.z = takeoff_pose.pose.position.z;
+        flatreferencePub_.publish(target_msg);
+        std::cout << "Taking off to " << target_msg.position.x << ", " << target_msg.position.y << ", " << target_msg.position.z << " m.\n";
+    } else if (t_now >= wait_time && t_now - wait_time < exec_time) {
 	    // std::cout << "t : " << t_now << std::endl;
         Eigen::Vector3d refpos = getPosition(t_now-wait_time);
         Eigen::Vector3d refvel = getVelocity(t_now-wait_time);

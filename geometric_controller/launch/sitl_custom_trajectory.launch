@@ -32,6 +32,9 @@
 
   <node pkg="trajectory_publisher" type="my_trajectory" name="trajectory_publisher" output="screen">
         <param name="altitude" value="5.0"/>
+        <param name="exec_time" value="15.0"/>
+        <param name="wait_time" value="15.0"/>
+        <param name="takeoff_time" value="5.0"/>
   </node>
 
   <!-- Launch rqt_reconfigure -->
