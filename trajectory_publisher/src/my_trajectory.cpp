@@ -4,6 +4,7 @@
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <controller_msgs/FlatTarget.h>
+#include <std_msgs/Float32.h>
 
 #include <chrono>
 #include <signal.h>
@@ -30,6 +31,7 @@ class TrajectoryPub
         std::cout << "Desired Altitude: " << takeoff_altitude << std::endl;
         traj_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/trajectory", 10);
         flatreferencePub_ = nh_.advertise<controller_msgs::FlatTarget>("/reference/flatsetpoint", 10);
+        yawreferencePub_ = nh_.advertise<std_msgs::Float32>("/reference/yaw", 10);
         primitives_pub_ = nh_.advertise<nav_msgs::Path>("/trajectory_publisher/primitiveset", 10);
         timer_ = nh_.createTimer(ros::Duration(0.01), std::bind(&TrajectoryPub::timer_cb, this));
         trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), std::bind(&TrajectoryPub::publishTrajectory, this));
@@ -61,6 +63,7 @@ private:
     ros::Publisher traj_pub_;
     ros::Publisher primitives_pub_;
     ros::Publisher flatreferencePub_;
+    ros::Publisher yawreferencePub_;
     ros::Subscriber odom_sub;
     nav_msgs::Odometry odom;
     geometry_msgs::PoseStamped takeoff_pose;
@@ -221,7 +224,13 @@ void TrajectoryPub::timer_cb()
     } else {
 	std::cout << "too late: t = " << t_now << std::endl;
     }
-
+    
+    // compute yaw aligned with motion
+    if (target_msg.velocity.x != 0.0) {
+        std_msgs::Float32 yawref_msg;
+        yawref_msg.data = std::atan2(target_msg.velocity.y, target_msg.velocity.x);
+        yawreferencePub_.publish(yawref_msg);
+    }
     
 
 
